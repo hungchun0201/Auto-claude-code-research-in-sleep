@@ -26,7 +26,7 @@ Research topic: $ARGUMENTS
 > - `/research-lit "topic" — sources: zotero, local` — only search Zotero + local PDFs
 > - `/research-lit "topic" — sources: zotero` — only search Zotero
 > - `/research-lit "topic" — sources: web` — only search the web (skip all local)
-> - `/research-lit "topic" — sources: web, semantic-scholar` — also search Semantic Scholar for published venue papers (IEEE, ACM, etc.)
+> - `/research-lit "topic" — sources: paper-extract` — only search the paper-extract local DB (content/extracted/*.json)
 > - `/research-lit "topic" — sources: deepxiv` — only search via DeepXiv progressive retrieval
 > - `/research-lit "topic" — sources: all, deepxiv` — use default sources plus DeepXiv
 > - `/research-lit "topic" — arxiv download: true` — download top relevant arXiv PDFs
@@ -39,27 +39,26 @@ This skill checks multiple sources **in priority order**. All are optional — i
 ### Source Selection
 
 Parse `$ARGUMENTS` for a `— sources:` directive:
-- **If `— sources:` is specified**: Only search the listed sources (comma-separated). Valid values: `zotero`, `obsidian`, `local`, `web`, `semantic-scholar`, `deepxiv`, `exa`, `gemini`, `openalex`, `all`.
-- **If not specified**: Default to `all` — search every available source in priority order (`semantic-scholar`, `deepxiv`, `exa`, `gemini`, and `openalex` are **excluded** from `all`; they must be explicitly listed).
+- **If `— sources:` is specified**: Only search the listed sources (comma-separated). Valid values: `zotero`, `obsidian`, `local`, `paper-extract`, `web`, `semantic-scholar`, `deepxiv`, `exa`, `gemini`, `openalex`, `all`.
+- **If not specified**: Default to `all` — search every available source in priority order. `semantic-scholar` and `paper-extract` are **included** in `all` (they degrade gracefully when their helper or DB is missing). `deepxiv`, `exa`, `gemini`, and `openalex` remain **excluded** from `all` and must be explicitly listed.
 
 Examples:
 ```
-/research-lit "diffusion models"                                    → all (default, no S2)
-/research-lit "diffusion models" — sources: all                     → all (default, no S2)
+/research-lit "diffusion models"                                    → all (default, includes S2 + paper-extract)
+/research-lit "diffusion models" — sources: all                     → all (default, includes S2 + paper-extract)
 /research-lit "diffusion models" — sources: zotero                  → Zotero only
 /research-lit "diffusion models" — sources: zotero, web             → Zotero + web
 /research-lit "diffusion models" — sources: local                   → local PDFs only
-/research-lit "topic" — sources: obsidian, local, web               → skip Zotero
-/research-lit "topic" — sources: web, semantic-scholar              → web + S2 API (IEEE/ACM venue papers)
+/research-lit "topic" — sources: paper-extract                      → paper-extract DB only (content/extracted/*.json)
+/research-lit "topic" — sources: obsidian, local, web               → skip Zotero / S2 / paper-extract
 /research-lit "topic" — sources: deepxiv                            → DeepXiv only
 /research-lit "topic" — sources: all, deepxiv                       → default sources + DeepXiv
-/research-lit "topic" — sources: all, semantic-scholar              → all + S2 API
-/research-lit "topic" — sources: exa                               → Exa only (broad web + content extraction)
-/research-lit "topic" — sources: all, exa                          → default sources + Exa web search
-/research-lit "topic" — sources: gemini                            → Gemini only (AI-powered broad discovery)
-/research-lit "topic" — sources: all, gemini                       → default sources + Gemini discovery
+/research-lit "topic" — sources: exa                                → Exa only (broad web + content extraction)
+/research-lit "topic" — sources: all, exa                           → default sources + Exa web search
+/research-lit "topic" — sources: gemini                             → Gemini only (AI-powered broad discovery)
+/research-lit "topic" — sources: all, gemini                        → default sources + Gemini discovery
 /research-lit "topic" — sources: gemini, semantic-scholar           → Gemini + S2 (broad discovery + venue metadata)
-/research-lit "topic" — sources: openalex                          → OpenAlex only (open citation graph + institutions)
+/research-lit "topic" — sources: openalex                           → OpenAlex only (open citation graph + institutions)
 /research-lit "topic" — sources: semantic-scholar, openalex         → S2 + OpenAlex (complementary metadata)
 ```
 
@@ -70,8 +69,9 @@ Examples:
 | 1 | **Zotero** (via MCP) | `zotero` | Try calling any `mcp__zotero__*` tool — if unavailable, skip | Collections, tags, annotations, PDF highlights, BibTeX, semantic search |
 | 2 | **Obsidian** (via MCP) | `obsidian` | Try calling any `mcp__obsidian-vault__*` tool — if unavailable, skip | Research notes, paper summaries, tagged references, wikilinks |
 | 3 | **Local PDFs** | `local` | `Glob: papers/**/*.pdf, literature/**/*.pdf` | Raw PDF content (first 3 pages) |
+| 3.5 | **Paper-extract DB** | `paper-extract` | `$PAPER_EXTRACT_FETCHER` resolves (canonical name `paper_extract_fetch.py`, per integration-contract §2) AND DB resolves (`$PAPER_EXTRACT_DB` env, `<git_root>/content/extracted/`, or `~/Project/agentic-ai-survey/content/extracted/`) | User-curated structured fingerprints written by `/paper-extract`: bilingual problem_statement / key_innovation / key_improvements, baselines_compared, venue, evaluation_method, hardware, network, `domains` tags. **Included in default `all`.** Helper and DB both degrade gracefully when missing. Supports `--domain` filter for subtable scoping (e.g. `ai-networking`, `inference-modeling`). |
 | 4 | **Web search** | `web` | Always available (WebSearch) | arXiv, Semantic Scholar, Google Scholar |
-| 5 | **Semantic Scholar API** | `semantic-scholar` | `$S2_FETCHER` resolves (canonical name `semantic_scholar_fetch.py`, per integration-contract §2) | Published venue papers (IEEE, ACM, Springer) with structured metadata: citation counts, venue info, TLDR. **Only runs when explicitly requested** via `— sources: semantic-scholar` or `— sources: web, semantic-scholar` |
+| 5 | **Semantic Scholar API** | `semantic-scholar` | `$S2_FETCHER` resolves (canonical name `semantic_scholar_fetch.py`, per integration-contract §2) | Published venue papers (IEEE, ACM, Springer) with structured metadata: citation counts, venue info, TLDR. **Included in default `all`** (skips silently when `$S2_FETCHER` is missing). |
 | 6 | **DeepXiv CLI** | `deepxiv` | `$DEEPXIV_FETCHER` resolves (canonical name `deepxiv_fetch.py`, per integration-contract §2) **and** `deepxiv` CLI present (`command -v deepxiv`) | Progressive paper retrieval: search, brief, head, section, trending, web search. **Only runs when explicitly requested** via `— sources: deepxiv` or `— sources: all, deepxiv` |
 | 7 | **Exa Search** | `exa` | `$EXA_FETCHER` resolves (canonical name `exa_search.py`, per integration-contract §2); fetcher handles `exa-py` SDK + API key internally | AI-powered broad web search with content extraction (highlights, text, summaries). Covers blogs, docs, news, companies, and research papers beyond arXiv/S2. **Only runs when explicitly requested** via `— sources: exa` or `— sources: all, exa` |
 | 8 | **Gemini** (MCP / CLI) | `gemini` | `mcp__gemini-cli__ask-gemini` tool available, or `gemini` CLI installed | AI-powered broad literature discovery — decomposes topics into sub-problems, aliases, and variants for wider retrieval. Prefers MCP, falls back to CLI. **Only runs when explicitly requested** via `— sources: gemini` or `— sources: all, gemini` |
@@ -138,6 +138,43 @@ Before searching online, check if the user already has relevant papers locally:
 5. **Build local knowledge base**: Compile summaries into a "papers you already have" section. This becomes the starting point — external search fills the gaps.
 
 > 📚 If no local papers are found, skip to Step 1. If the user has a comprehensive local collection, the external search can be more targeted (focus on what's missing).
+
+### Step 0d: Search Paper-extract Database
+
+**Skip this step entirely if `paper-extract` is not in the resolved source list.** Included in default `all`; degrades gracefully when the helper or DB is missing.
+
+The paper-extract database is a user-curated **structured fingerprint** layer (`content/extracted/<slug>.json`) maintained by the `/paper-extract` skill. Each record is a flat JSON record produced per the schema YAMLs in `schemas/<domain>.yaml` and carries (varies by schema): bilingual `problem_statement` / `key_innovation` / `key_improvements`, `baselines_compared`, `evaluation_method`, `venue`, `arxiv`, `affiliations`, `gpu_count`, `network_hw`, `transport_and_interconnect`, plus a `domains` array tagging which subtables (e.g. `ai-networking`, `inference-modeling`) the paper belongs to. Matching here means the user has already done a careful technical extraction — surface those first, then enrich with external sources.
+
+```bash
+# Re-resolve $ARIS_REPO (SKILL bash blocks may run in separate shells).
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 1
+if [ -z "${ARIS_REPO:-}" ] && [ -f .aris/installed-skills.txt ]; then
+    ARIS_REPO=$(awk -F'\t' '$1=="repo_root"{print $2; exit}' .aris/installed-skills.txt 2>/dev/null) || true
+fi
+# Resolve $PAPER_EXTRACT_FETCHER (Policy D2 — warn-and-skip on missing).
+PAPER_EXTRACT_FETCHER=".aris/tools/paper_extract_fetch.py"
+[ -f "$PAPER_EXTRACT_FETCHER" ] || PAPER_EXTRACT_FETCHER="tools/paper_extract_fetch.py"
+[ -f "$PAPER_EXTRACT_FETCHER" ] || { [ -n "${ARIS_REPO:-}" ] && PAPER_EXTRACT_FETCHER="$ARIS_REPO/tools/paper_extract_fetch.py"; }
+[ -f "$PAPER_EXTRACT_FETCHER" ] || PAPER_EXTRACT_FETCHER=""
+
+if [ -n "$PAPER_EXTRACT_FETCHER" ]; then
+  # Optional: add --domain <name> to restrict to a subtable (ai-networking, inference-modeling, ...).
+  if python3 "$PAPER_EXTRACT_FETCHER" search "QUERY" --max 10; then
+    echo "D2 contribution: paper_extract (helper invocation exit 0)" >&2
+  else
+    echo "WARN: paper_extract_fetch.py invocation failed; D2 aggregate continues with remaining sources." >&2
+  fi
+fi
+```
+
+DB resolution chain inside the helper:
+1. `$PAPER_EXTRACT_DB` env var (explicit override)
+2. `<git_root>/content/extracted/` (current project)
+3. `~/Project/agentic-ai-survey/content/extracted/` (user fallback)
+
+If none resolves, the helper prints `{"error": "no paper-extract database found", "results": []}` and exits 0 — D2 aggregate continues with the remaining sources.
+
+**De-duplication**: Match by `arxiv` field against arXiv/S2 results. When a paper appears in both paper-extract and external sources, treat paper-extract as **authoritative for problem framing, innovation, key improvements, and baselines_compared** (the user has already verified these against the paper text per the source-fidelity rule). Keep external sources for citation count, venue corrections, and additional metadata.
 
 ### Step 1: Search (external)
 - Use WebSearch to find recent papers on the topic
@@ -206,9 +243,9 @@ If `$ARXIV_FETCHER` is empty (D2 graceful degradation), fall back to WebSearch f
 
 The arXiv API returns structured metadata (title, abstract, full author list, categories, dates) — richer than WebSearch snippets. Merge these results with WebSearch findings and de-duplicate.
 
-**Semantic Scholar API search** (only when `semantic-scholar` is in sources):
+**Semantic Scholar API search** (runs whenever `semantic-scholar` is in the resolved source list — included in default `all`):
 
-When the user explicitly requests `— sources: semantic-scholar` (or `— sources: web, semantic-scholar`), search for published venue papers beyond arXiv:
+Search Semantic Scholar for published venue papers beyond arXiv (IEEE, ACM, Springer, etc.). The fetcher reads `SEMANTIC_SCHOLAR_API_KEY` from the environment when present (raises rate limits substantially) and degrades to anonymous access otherwise.
 
 ```bash
 # Re-resolve $ARIS_REPO (SKILL bash blocks may run in separate shells).
