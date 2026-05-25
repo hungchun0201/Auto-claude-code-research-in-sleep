@@ -13,8 +13,9 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 
 ## Constants
 
-- MAX_ROUNDS = 4
+- MAX_ROUNDS = 4 (**soft cap, not a stopping excuse**: see Termination below — MAX_ROUNDS only matters if score is *plateauing*. If score is still improving round-over-round, KEEP GOING. Hitting MAX_ROUNDS at a sub-threshold score with active mechanism work in progress is FAILURE, not termination.)
 - POSITIVE_THRESHOLD: score >= 6/10, or verdict contains "accept", "sufficient", "ready for submission"
+- LIT_SURVEY_PER_ROUND = true — **mandatory before each Phase A AND after each Phase B**. See Phase A.0 and Phase B.7.
 - REVIEW_DOC: `review-stage/AUTO_REVIEW.md` (cumulative log) *(fall back to `./AUTO_REVIEW.md` for legacy projects)*
 - REVIEWER_MODEL = `gpt-5.5` — Model used via Codex MCP. Must be an OpenAI model (e.g., `gpt-5.5`, `o3`, `gpt-4o`)
 - **REVIEWER_BACKEND = `codex`** — Default: Codex MCP (xhigh). Override with `— reviewer: oracle-pro` for GPT-5.4 Pro via Oracle MCP. See `shared-references/reviewer-routing.md`.
@@ -77,6 +78,35 @@ Long-running loops may hit the context window limit, triggering automatic compac
 6. Create/update `review-stage/AUTO_REVIEW.md` with header and timestamp
 
 ### Loop (repeat up to MAX_ROUNDS)
+
+#### Phase A.0: Pre-review literature pulse (NEW — mandatory when LIT_SURVEY_PER_ROUND=true)
+
+**Before** sending anything to the reviewer, do a FRESH lit-pulse comparing the
+current state to recent publications. This is NOT a full survey (that was done
+at pipeline initialization); it's a delta-check:
+
+```
+# Spawn a fast lit-survey agent or invoke /research-lit
+Agent({
+  description: "R{N} pre-review lit pulse",
+  subagent_type: "general-purpose",
+  prompt: |
+    Lit pulse for round {N} of auto-review-loop. Current state of the work:
+    [paste 5-line summary: claim, MAPE, key mechanisms, latest fix]
+
+    Search arxiv (2024-2026) + venue proceedings for:
+    1. Papers published in the last 2 months that overlap with our claim
+    2. Specific numerical baselines we should beat (MAPE, latency, etc.)
+    3. Any new mechanism or framing that obsoletes ours
+
+    Output: 200-word max. List of arxiv-id + 1-line claim + comparison
+    delta vs ours.
+})
+```
+
+This pulse goes INTO the Codex prompt as a fresh-context block. The reviewer
+then evaluates novelty against the actual recent literature, not against
+training-data memory which may be stale.
 
 #### Phase A: Review
 
@@ -325,6 +355,39 @@ After parsing the score, check if `~/.claude/feishu.json` exists and mode is not
 - If **interactive** mode and verdict is "almost": send as checkpoint, wait for user reply on whether to continue or stop
 - If config absent or mode off: skip entirely (no-op)
 
+#### Phase B.7: Post-review literature re-pulse (NEW — mandatory when LIT_SURVEY_PER_ROUND=true)
+
+**Before** designing the Phase C experiments, do a SECOND lit-pulse. Reason:
+the reviewer just told you what's wrong; the experimental plan to fix it MAY
+have already been done by someone else. Don't waste GPU hours re-running
+known patterns.
+
+```
+Agent({
+  description: "R{N} post-review plan-check lit pulse",
+  subagent_type: "general-purpose",
+  prompt: |
+    The reviewer flagged these weaknesses in our Round {N} review:
+    [paste top-3 weaknesses from Phase B]
+
+    We are about to design experiments to fix these. Search arxiv +
+    recent venue proceedings:
+    1. Has anyone published a paper that addresses each weakness?
+    2. If yes, what experimental design did they use? What did they
+       measure? What did they conclude?
+    3. Are there standard benchmarks or measurement protocols we
+       should use rather than rolling our own?
+
+    Output: ≤300 words. For each weakness, list (a) prior work that
+    addressed it, (b) the standard methodology, (c) whether our plan
+    duplicates or differentiates from prior work.
+})
+```
+
+Use this output to REVISE the Phase C plan before launching experiments.
+If the agent reports "already done", pivot the fix strategy (e.g., reframe
+rather than re-run).
+
 #### Phase C: Implement Fixes (if not stopping)
 
 For each action item (highest priority first):
@@ -339,6 +402,36 @@ Prioritization rules:
 - Skip fixes requiring external data/models not available
 - Prefer reframing/analysis over new experiments when both address the concern
 - Always implement metric additions (cheap, high impact)
+
+#### Phase C.5: Between-round discipline (NEW — never use Phase D as a session terminator)
+
+After Phase C is implemented, check: does ANY of the just-applied changes
+**require waiting** for GPU jobs to complete BEFORE the next review can be
+informative? Three cases:
+
+**Case A — all Phase C changes are code-only / no GPU needed (most common):**
+proceed DIRECTLY to Phase D (zero-wait), then E, then increment round and
+go to Phase A.0. Do NOT pause the session. The fact that some BACKGROUND
+PACE jobs are queued does NOT mean the next review must wait — give the
+reviewer the new state derived from the code changes.
+
+**Case B — Phase C launched GPU jobs whose results MUST be in the next
+review:** Phase D legitimately waits for those specific jobs. While
+waiting, the implementer MUST still pivot to non-blocked work (lit
+re-survey for the upcoming round, audits, paper-section drafting). Do
+NOT let "monitor armed" become a session terminator.
+
+**Case C — Phase C ran no fixes at all (reviewer score was already
+positive):** loop terminates per Termination protocol; not a "wait"
+case.
+
+**Audit each Phase C exit with this question**: "If I show the reviewer
+the current repo state RIGHT NOW (with my Phase C changes committed but
+PACE jobs still queued), would they say 'wait, that's the same as last
+round'?" If NO (changes are real and reviewable), proceed to next round
+immediately. If YES (the only thing different is queued PACE jobs that
+haven't finished), then it's a true Phase D wait — but fill the wait
+with productive work, not idle monitoring.
 
 #### Phase D: Wait for Results
 
@@ -407,7 +500,23 @@ Increment round counter → back to Phase A.
 
 ### Termination
 
-When loop ends (positive assessment or max rounds):
+**WHEN to terminate (priority order):**
+
+1. **Score ≥ POSITIVE_THRESHOLD** — terminate, declare success.
+2. **Score plateaued** (last 2 rounds within ±0.5) AND **no clearly-actionable
+   path** to next round's improvement → terminate, declare blocked.
+3. **MAX_ROUNDS reached** AND score still improving (≥+0.5 between last
+   two rounds): **DO NOT terminate**. Bump MAX_ROUNDS by 2 and continue.
+   The hard cap is a guard against runaway loops, NOT a stopping
+   excuse when progress is real.
+4. **MAX_ROUNDS reached** AND score plateaued: terminate, declare blocked.
+
+The implementer (Claude) is NOT permitted to terminate the loop because
+"we're at round N=MAX_ROUNDS" if the previous round's actions produced
+new state that hasn't been re-reviewed yet. Always re-review before
+declaring done.
+
+When loop ends (positive assessment or max rounds + plateau):
 
 1. Update `review-stage/REVIEW_STATE.json` with `"status": "completed"`
 2. Write final summary to `review-stage/AUTO_REVIEW.md`
