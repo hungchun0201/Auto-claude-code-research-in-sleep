@@ -2,7 +2,9 @@
 """ARIS-Monitor: STRICTLY READ-ONLY session scanner / triage classifier.
 
 This module READS files under ~/.claude only. It NEVER writes, kills, signals,
-spawns, runs subprocess/tmux/ps, polls processes, or touches the network.
+spawns, runs subprocess/tmux/ps, or touches the network. The ONE process
+interaction is a liveness probe -- os.kill(pid, 0) -- which sends NO signal and
+only asks the kernel "does this pid still exist?"; it cannot affect a session.
 
 Authoritative needs-approval signal
 ------------------------------------
@@ -25,9 +27,17 @@ every mid-tool pause.
 
 Liveness
 --------
-Liveness is inferred purely from `updatedAt` freshness. We deliberately do NOT
-call os.kill(pid, 0), ps, or anything that interacts with live OS state. A
-registry file untouched within LIVE_WINDOW is treated as stale and hidden.
+The registry `updatedAt` is NOT a reliable liveness signal on its own: it
+FREEZES during a long autonomous tool loop, so a session genuinely busy on a
+40-minute task looks "stale" by updatedAt alone. We therefore combine three
+READ-ONLY signals:
+  * `updatedAt` freshness (registry field);
+  * the transcript JSONL mtime (keeps advancing while the session does work);
+  * a process-existence probe -- os.kill(pid, 0) -- which sends NO signal.
+Rules: a session whose process is GONE is stale no matter what its (possibly
+crashed-mid-write) status claims; a LIVE process whose status is `busy`/`shell`
+is shown as working even when `updatedAt` is old; an otherwise-idle live session
+older than LIVE_WINDOW by BOTH file signals is folded into the dim stale count.
 
 Codex
 -----
@@ -264,42 +274,94 @@ def _last_assistant_info(path: Optional[Path]) -> Optional[Info]:
 
 
 # ---------------------------------------------------------------------------
-# Status decision function. Mirrors claude-fleet patrol.classify() but is
-# strictly file-only (no os.kill / no ps / no subprocess) and collapses the
-# fleet buckets into the MVP's three visible ones.
+# Read-only liveness helpers. `updatedAt` freezes during a long autonomous tool
+# loop, so it is NOT a sufficient liveness signal on its own; these two add the
+# transcript mtime (real activity) and a no-signal process-existence probe.
 # ---------------------------------------------------------------------------
-def _status_for(data: dict, transcript: Optional[Path], now: float) -> Tuple[str, str]:
+def _transcript_idle(path: Optional[Path], now: float) -> int:
+    """Seconds since the transcript JSONL was last appended; 10**9 if unknown.
+
+    A read-only stat(). The registry `updatedAt` freezes mid-task while the
+    transcript keeps growing, so this tracks real session activity far better.
+    """
+    if path is None:
+        return 10 ** 9
+    try:
+        return max(0, int(now - path.stat().st_mtime))
+    except Exception:
+        return 10 ** 9
+
+
+def _proc_alive(pid: int) -> bool:
+    """READ-ONLY liveness: does process <pid> exist? Never affects it.
+
+    `os.kill(pid, 0)` sends NO signal -- signal 0 only probes existence and the
+    caller's permission to signal. ProcessLookupError => the process is gone
+    (stale); PermissionError => it exists under another uid (rare pid reuse) so
+    we treat it as alive rather than risk hiding a real session.
+    """
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Status decision function. Collapses the fleet buckets into the MVP's visible
+# ones, using three read-only signals (updatedAt, transcript mtime, live pid).
+# ---------------------------------------------------------------------------
+def _status_for(data: dict, transcript: Optional[Path], now: float,
+                pid: int) -> Tuple[str, str]:
     """Return (triage, reason) for one session dict."""
     s = data.get("status", "unknown")
     updated_at = _as_int(data.get("updatedAt", 0))
-    idle = max(0, int(now - updated_at / 1000)) if updated_at else 10 ** 9
+    reg_idle = max(0, int(now - updated_at / 1000)) if updated_at else 10 ** 9
+    # Effective freshness: the FRESHER of registry vs transcript. A busy session
+    # whose updatedAt froze 40 min ago but whose transcript was written 20s ago
+    # is plainly alive -- trust the 20s.
+    idle = min(reg_idle, _transcript_idle(transcript, now))
 
     # 1) NEEDS-APPROVAL -- highest priority, straight from the live JSON.
     #    THIS is the core MVP signal; no transcript parse needed. It MUST be
-    #    checked BEFORE the stale-liveness gate: a session genuinely waiting on
-    #    a permission prompt while the user stepped away may not have its
-    #    updatedAt refreshed, yet it is precisely the one that must stay RED. A
-    #    waiting session is therefore never folded into the hidden stale count,
-    #    regardless of updatedAt age.
+    #    checked BEFORE any liveness gate: a session genuinely waiting on a
+    #    permission prompt while the user stepped away may not have its
+    #    updatedAt refreshed, yet it is precisely the one that must stay RED.
     if s == "waiting":
         # str(): waitingFor is external/untrusted -- a half-written value could
         # be a dict/list, which would later crash the widget's reason[:26].
         return (NEEDS_APPROVAL, str(data.get("waitingFor") or "needs approval / 等待授权"))
 
-    # 2) File-only liveness. No os.kill. A registry file not touched within
-    #    LIVE_WINDOW is treated as stale and hidden (waiting already handled).
-    if idle > LIVE_WINDOW:
+    # 2) A dead process is stale, full stop -- a crashed session can leave a
+    #    "busy" registry file behind forever, and only the missing pid reveals
+    #    it. This replaces the old "updatedAt older than LIVE_WINDOW => stale"
+    #    gate that wrongly hid live long-running tasks.
+    if not _proc_alive(pid):
         return (STALE_HIDDEN, "")
 
-    # 3) Actively working -- trust a fresh live JSON.
-    if s == "busy" and idle < IDLE_THRESHOLD:
+    # 3) Live AND actively working -- trust the status regardless of how old
+    #    updatedAt is. A long autonomous run freezes updatedAt; the live pid
+    #    plus (usually) a fresh transcript prove it is still going.
+    if s == "busy":
         return (WORKING, "working")
     if s == "shell":
         # A shell process is actively running -- mirror claude-fleet's
         # patrol.classify() which maps status=='shell' to working.
         return (WORKING, "shell process running")
 
-    # 4) Refine the rest with a read-only transcript tail.
+    # 4) Live but not busy/shell, and quiet (no registry/transcript activity)
+    #    for longer than LIVE_WINDOW => fold into the dim stale count. Uses the
+    #    effective freshness, so a recently-active idle session still shows.
+    if idle > LIVE_WINDOW:
+        return (STALE_HIDDEN, "")
+
+    # 5) Refine the rest with a read-only transcript tail.
     info = _last_assistant_info(transcript)
     if info is None:
         return (IDLE_DONE, "no/empty transcript")
@@ -309,9 +371,7 @@ def _status_for(data: dict, transcript: Optional[Path], now: float) -> Tuple[str
         return (IDLE_DONE, "completed")
     if info.stop_reason == "tool_use":
         # Stopped mid-tool but NOT status==waiting => stalled, NOT pending
-        # approval. Never flag this red. A genuinely busy & fresh session was
-        # already returned WORKING in step 3; reaching here means it is not
-        # fresh, so a mid-tool stop is stalled per the documented spec.
+        # approval. Never flag this red.
         nudge = f"stalled at {info.last_tool}" if info.last_tool else "stalled mid-tool"
         return (NEEDS_ATTENTION, nudge)
     return (IDLE_DONE if idle >= IDLE_THRESHOLD else WORKING, "")
@@ -354,18 +414,26 @@ def scan() -> List[Session]:
                 session_id = str(data.get("sessionId") or "")
                 cwd = str(data.get("cwd") or "")
                 transcript = _transcript_path(session_id, cwd)
-                triage, reason = _status_for(data, transcript, now)
-
-                updated_at = _as_int(data.get("updatedAt", 0))
-                idle_seconds = max(0, int(now - updated_at / 1000)) if updated_at else 0
 
                 # Recover pid from the "<pid>.json" filename when the field is
-                # absent/half-written (see _load_session_file).
+                # absent/half-written (see _load_session_file). Needed BEFORE
+                # classification now -- the live-process probe keys off it.
                 fname_pid = _as_int(base[:-5]) if base.endswith(".json") else 0
+                pid = _as_int(data.get("pid"), fname_pid)
+
+                triage, reason = _status_for(data, transcript, now, pid)
+
+                # Displayed age uses the FRESHER of registry/transcript, so a
+                # busy long task whose updatedAt froze still shows a live age
+                # instead of a misleading "41m".
+                updated_at = _as_int(data.get("updatedAt", 0))
+                reg_idle = max(0, int(now - updated_at / 1000)) if updated_at else 10 ** 9
+                eff_idle = min(reg_idle, _transcript_idle(transcript, now))
+                idle_seconds = 0 if eff_idle >= 10 ** 9 else eff_idle
 
                 out.append(
                     Session(
-                        pid=_as_int(data.get("pid"), fname_pid),
+                        pid=pid,
                         name=str(data.get("name") or os.path.basename(cwd) or "?"),
                         cwd=cwd,
                         status=data.get("status", "unknown"),
