@@ -19,9 +19,9 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 - **REVIEWER_BACKEND = `codex`** — Default: Codex reviewer agent at xhigh reasoning. Override with `--reviewer: oracle-pro` only when the user explicitly requests Oracle; if Oracle is unavailable, warn and fall back to Codex xhigh.
 - **HUMAN_CHECKPOINT = false** — When `true`, pause after each round's review (Phase B) and present the score + weaknesses to the user. Wait for user input before proceeding to Phase C. The user can: approve the suggested fixes, provide custom modification instructions, skip specific fixes, or stop the loop early. When `false` (default), the loop runs fully autonomously.
 - **COMPACT = false** — When `true`, (1) read `EXPERIMENT_LOG.md` and `findings.md` instead of parsing full logs on session recovery, (2) append key findings to `findings.md` after each round.
-- **REVIEWER_DIFFICULTY = medium** — Controls adversarial depth: `medium` uses normal Codex xhigh review through `spawn_agent` / `send_input`; `hard` adds Reviewer Memory and Debate Protocol; `nightmare` adds direct repository-reading adversarial verification by an independent reviewer.
+- **REVIEWER_DIFFICULTY = nightmare** — Controls adversarial depth: `medium` uses normal Codex xhigh review through `spawn_agent` / `send_input`; `hard` adds Reviewer Memory and Debate Protocol; `nightmare` (default) adds direct repository-reading adversarial verification by an independent reviewer.
 
-> 💡 Override: `/auto-review-loop "topic" — compact: true, human checkpoint: true, difficulty: hard`
+> 💡 Override: `/auto-review-loop "topic" — compact: true, human checkpoint: true, difficulty: medium`
 
 ## Claude-Aligned Reviewer Memory and Debate
 
@@ -90,7 +90,7 @@ Long-running loops may hit the context window limit, triggering automatic compac
 
 **Route by REVIEWER_DIFFICULTY:**
 
-##### Medium (default) — Codex Review
+##### Medium — Codex Review
 
 Send comprehensive context to the external reviewer:
 
@@ -119,7 +119,7 @@ If this is round 2+, use `send_input` with the saved agent id to maintain contin
 
 Use the same `spawn_agent` / `send_input` route as medium, but prepend the full `review-stage/REVIEWER_MEMORY.md` contents under `## Your Reviewer Memory (persistent across rounds)` and require a `Memory update` section in the reviewer response.
 
-##### Nightmare — Independent Repository Review
+##### Nightmare (default) — Independent Repository Review
 
 Use everything in hard mode, then ask an additional fresh adversarial reviewer to verify claims against repository files, logs, result files, and paper drafts instead of trusting executor summaries. Preserve the fresh review as a separate raw response and trace.
 

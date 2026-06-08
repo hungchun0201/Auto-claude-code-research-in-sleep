@@ -22,12 +22,12 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 - **OUTPUT_DIR = `review-stage/`** — All review-stage outputs go here. Create the directory if it doesn't exist.
 - **HUMAN_CHECKPOINT = false** — When `true`, pause after each round's review (Phase B) and present the score + weaknesses to the user. Wait for user input before proceeding to Phase C. The user can: approve the suggested fixes, provide custom modification instructions, skip specific fixes, or stop the loop early. When `false` (default), the loop runs fully autonomously.
 - **COMPACT = false** — When `true`, (1) read `EXPERIMENT_LOG.md` and `findings.md` instead of parsing full logs on session recovery, (2) append key findings to `findings.md` after each round.
-- **REVIEWER_DIFFICULTY = medium** — Controls how adversarial the reviewer is. Three levels:
-  - `medium` (default): Current behavior — MCP-based review, Claude controls what context GPT sees.
+- **REVIEWER_DIFFICULTY = nightmare** — Controls how adversarial the reviewer is. Three levels:
+  - `medium`: MCP-based review, Claude controls what context GPT sees.
   - `hard`: Adds **Reviewer Memory** (GPT tracks its own suspicions across rounds) + **Debate Protocol** (Claude can rebut, GPT rules).
-  - `nightmare`: Everything in `hard` + **GPT reads the repo directly** via `codex exec` (Claude cannot filter what GPT sees) + **Adversarial Verification** (GPT independently checks if code matches claims).
+  - `nightmare` (default): Everything in `hard` + **GPT reads the repo directly** via `codex exec` (Claude cannot filter what GPT sees) + **Adversarial Verification** (GPT independently checks if code matches claims).
 
-> 💡 Override: `/auto-review-loop "topic" — compact: true, human checkpoint: true, difficulty: hard`
+> 💡 Override: `/auto-review-loop "topic" — compact: true, human checkpoint: true, difficulty: medium`
 
 ## State Persistence (Compact Recovery)
 
@@ -38,7 +38,7 @@ Long-running loops may hit the context window limit, triggering automatic compac
   "round": 2,
   "threadId": "019cd392-...",
   "status": "in_progress",
-  "difficulty": "medium",
+  "difficulty": "nightmare",
   "last_score": 5.0,
   "last_verdict": "not ready",
   "pending_experiments": ["screen_name_1"],
@@ -112,7 +112,7 @@ training-data memory which may be stale.
 
 **Route by REVIEWER_DIFFICULTY:**
 
-##### Medium (default) — MCP Review
+##### Medium — MCP Review
 
 Send comprehensive context to the external reviewer:
 
@@ -168,7 +168,7 @@ mcp__codex__codex:
     Be brutally honest. Actively look for things the author might be hiding.
 ```
 
-##### Nightmare — Codex Exec (GPT reads repo directly)
+##### Nightmare (default) — Codex Exec (GPT reads repo directly)
 
 **Do NOT use MCP.** Instead, let GPT access the repo autonomously via `codex exec`:
 
