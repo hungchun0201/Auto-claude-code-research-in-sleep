@@ -146,6 +146,21 @@ done <<EOF
 $CANDIDATES
 EOF
 
+# --- VS Code integrated-terminal fallback (activate-only) --------------------
+# VS Code does NOT expose individual integrated-terminal tabs to AppleScript, so
+# the exact tab that owns <tty> cannot be selected. Best-effort: if ARIS-Monitor
+# is hosted in VS Code (the env it inherited), raise the VS Code app to the front
+# so the session can be found manually. `activate` only raises the app — it
+# selects nothing, sends no keys, and mutates no session (stays within this
+# script's raise-only contract). Matched by bundle id so any install name works
+# (e.g. "Visual Studio Code 2").
+if [ "${TERM_PROGRAM:-}" = "vscode" ]; then
+  if osascript -e 'tell application id "com.microsoft.VSCode" to activate' 2>>"$ERRFILE"; then
+    echo "raised VS Code (integrated terminal: cannot target the exact tab for tty $TTY)" >&2
+    exit 0
+  fi
+fi
+
 # Nothing focusable — distinguish a macOS Automation (TCC) denial from a real miss.
 if grep -qiE '(-1743|not authoriz|not allowed|Automation)' "$ERRFILE" 2>/dev/null; then
   echo "focus-tty.sh: macOS Automation permission denied. Grant control of Terminal/iTerm in" >&2
