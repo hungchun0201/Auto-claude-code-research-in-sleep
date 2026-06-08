@@ -28,9 +28,65 @@ FORBIDDEN_CODEX_REVIEWER_STRINGS = (
     "threadId",
 )
 
+# Phase A (issue #240): cross-language anchor IDs that MUST exist as
+# explicit `<a id="..."></a>` in both README.md and README_CN.md so that
+# cross-language hyperlinks resolve identically. Adding a new numbered
+# section means adding it to both READMEs AND extending this list.
+REQUIRED_README_ANCHORS = (
+    "contents",
+    "more-than-just-a-prompt",
+    "whats-new",
+    "quick-start",
+    "features",
+    "score-progression",
+    "community-showcase",
+    "awesome-community-skills",
+    "workflows",
+    "skills-catalog",
+    "setup",
+    "customization",
+    "alternative-model-combinations",
+    "community",
+    "citation",
+    "star-history",
+    "acknowledgements",
+    "license",
+    "prerequisites",
+    "install-skills",
+    "gpu-server-setup",
+    "alt-a-glm--gpt",
+    "-optional-gpt-54-pro-via-oracle",
+    "-research-wiki--persistent-research-memory",
+)
+
 
 def skill_names(root: Path) -> set[str]:
     return {path.parent.name for path in root.glob("*/SKILL.md")}
+
+
+def allowed_tools(text: str) -> list[str]:
+    """Tokens on the frontmatter `allowed-tools:` line (empty if absent)."""
+    match = re.search(r"^allowed-tools:\s*(.+)$", text, flags=re.MULTILINE)
+    if not match:
+        return []
+    return [tok.strip() for tok in match.group(1).split(",") if tok.strip()]
+
+
+def frontmatter_split(text: str) -> str:
+    """Return the body after a leading YAML frontmatter block (whole text if
+    no frontmatter). Anchors on the opening `---` fence and the first closing
+    `---` fence, so `---` horizontal rules later in the body are not mistaken
+    for the frontmatter boundary."""
+    match = re.match(r"^---\n.*?\n---\n", text, flags=re.DOTALL)
+    return text[match.end():] if match else text
+
+
+def readme_anchors(text: str) -> set[str]:
+    return set(re.findall(r'<a id="([^"]+)"></a>', text))
+
+
+def numbered_h2_count(text: str) -> int:
+    return len(re.findall(r"^## \d+\.\s", text, flags=re.MULTILINE))
 
 
 def read(path: Path) -> str:
@@ -110,6 +166,37 @@ def check_inventory() -> list[str]:
         for forbidden in FORBIDDEN_CODEX_REVIEWER_STRINGS:
             if forbidden in text:
                 failures.append(f"{skill_file.relative_to(REPO_ROOT)} contains forbidden reviewer string: {forbidden}")
+
+    # README parity (EN ↔ CN) — Phase A invariant from #240
+    en_anchors = readme_anchors(readme)
+    cn_anchors = readme_anchors(readme_cn)
+    for required in REQUIRED_README_ANCHORS:
+        if required not in en_anchors:
+            failures.append(f"README.md missing required anchor: <a id=\"{required}\"></a>")
+        if required not in cn_anchors:
+            failures.append(f"README_CN.md missing required anchor: <a id=\"{required}\"></a>")
+
+    en_h2 = numbered_h2_count(readme)
+    cn_h2 = numbered_h2_count(readme_cn)
+    require(en_h2 == 17, f"README.md has {en_h2} numbered H2 sections; expected 17 (Phase A)", failures)
+    require(cn_h2 == 17, f"README_CN.md has {cn_h2} numbered H2 sections; expected 17 (Phase A)", failures)
+
+    # Agent-grant hygiene (WB2): `Agent` in allowed-tools is the Tier-2
+    # fan-out capability gate. Per shared-references/fan-out-pattern.md it is
+    # granted ONLY to skills that actually fan out, and such skills MUST cite
+    # the convention doc in their body. A grant without that citation is a
+    # vestigial/boilerplate grant and fails the drift check.
+    for skill_file in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
+        text = read(skill_file)
+        if "Agent" not in allowed_tools(text):
+            continue
+        if "fan-out-pattern.md" not in frontmatter_split(text):
+            rel = skill_file.relative_to(REPO_ROOT)
+            failures.append(
+                f"{rel} grants `Agent` in allowed-tools but its body does not "
+                f"cite fan-out-pattern.md — vestigial grant or undocumented "
+                f"fan-out (see shared-references/fan-out-pattern.md)"
+            )
 
     return failures
 

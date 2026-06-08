@@ -11,7 +11,7 @@ Stress-test the headline claims of a paper against the strongest possible reject
 
 ## Why This Exists
 
-Standard score-based reviews (`/peer-review`, `/research-review`, `/auto-paper-improvement-loop`) tend to produce **balanced** weakness lists.  Each weakness gets ~equal attention, ranked CRITICAL > MAJOR > MINOR.  Empirically, this misses one specific failure mode: the **single most damaging argument** a reviewer would write in a rejection paragraph — the one sentence that, if a senior area chair reads it, kills the paper.
+Standard score-based reviews (`/research-review`, `/auto-paper-improvement-loop`) tend to produce **balanced** weakness lists.  Each weakness gets ~equal attention, ranked CRITICAL > MAJOR > MINOR.  Empirically, this misses one specific failure mode: the **single most damaging argument** a reviewer would write in a rejection paragraph — the one sentence that, if a senior area chair reads it, kills the paper.
 
 A balanced reviewer might list "scope-overclaim risk" as MAJOR alongside 3-5 other MAJORs, never quite committing.  An adversarial reviewer **must commit**: their entire job is to convince the area chair to reject in 200 words.
 
@@ -23,7 +23,7 @@ This skill runs that adversarial pass deliberately, then forces a second fresh r
 
 | Skill | What it asks the reviewer | Output |
 |-------|---------------------------|--------|
-| `/peer-review` | "Score this paper, list weaknesses by severity" | balanced weakness list |
+| Standard peer review | "Score this paper, list weaknesses by severity" | balanced weakness list |
 | `/research-review` | "Deep technical review of methods + claims" | structured deep critique |
 | `/proof-checker` | "Is this theorem actually proved?" | per-step proof obligation audit |
 | `/paper-claim-audit` | "Does the paper report numbers truthfully?" | per-claim evidence verification |
@@ -39,7 +39,7 @@ This skill is **complementary**, not a replacement.  Run after standard reviews 
 - For theory papers with a high-level title that may oversimplify the actual theorem (the most common reject-attack pattern).
 - For papers where a reviewer might attack scope, assumption-vs-claim mismatch, missing proof obligations, or evidence-vs-headline gaps.
 
-This skill is most valuable for **theory papers** with ≥5 theorem-class environments (so the headline depends on real proof obligations).  For empirical papers without theorems, use `/peer-review` instead.
+This skill is most valuable for **theory papers** with ≥5 theorem-class environments (so the headline depends on real proof obligations).  For empirical papers without theorems, use `/research-review` instead.
 
 ## Constants
 
@@ -49,6 +49,7 @@ This skill is most valuable for **theory papers** with ≥5 theorem-class enviro
 - **DEFENSE_DECOMPOSITION** = 3-7 atomic rejection points extracted from the attack memo.  Each gets its own classification.
 - **CLASSIFICATION** = `answered_by_current_text` / `partially_answered` / `still_unresolved`.  (Names chosen so the adjudicator does not assume "fixed" implies prior history of patching — they read the paper as a fresh reviewer would.)
 - **OUTPUT** = `KILL_ARGUMENT.md` (human-readable) + `KILL_ARGUMENT.json` (machine-readable) in the paper directory.
+- **RENDER_HTML = true** — When `true` (default), auto-render `KILL_ARGUMENT.md` to HTML after writing the report via `/render-html "<paper-dir>/KILL_ARGUMENT.md" --json "<paper-dir>/KILL_ARGUMENT.json"`. Uses **full review gate** (audit-class artifact). Set `false` to skip, or pass `— render html: false`. **Non-blocking**: failures don't invalidate the kill-argument verdict.
 
 ## Workflow
 
@@ -355,6 +356,7 @@ To the user:
 - `<paper-dir>/KILL_ARGUMENT.json` — machine-readable ledger
 - `.aris/traces/kill-argument/<date>_runNN/` — per-thread codex traces (Attack memo + Adjudication memo)
 - Optional: applied fixes if user explicitly requests; default is **detect-only, do not auto-modify**.
+- `<paper-dir>/KILL_ARGUMENT.html` (when `RENDER_HTML = true`, default) — single-file HTML view auto-rendered via `/render-html` with the JSON sidecar. Full review gate applies. **Non-blocking**: if `/render-html` fails, the kill-argument verdict still counts as complete.
 
 ## Key Rules
 
@@ -368,7 +370,7 @@ To the user:
 
 ## When NOT to Use
 
-- Empirical papers without theorems / scope claims — `/peer-review` is more useful.  The skill emits `NOT_APPLICABLE` with `reason_code: not_theory_or_scope_paper` in this case.
+- Empirical papers without theorems / scope claims — `/research-review` is more useful.  The skill emits `NOT_APPLICABLE` with `reason_code: not_theory_or_scope_paper` in this case.
 - Very early drafts where the headline isn't stable yet — fix the headline first.  The skill emits `NOT_APPLICABLE` with `reason_code: headline_unstable` if the title or abstract changed within the last 2 commits.
 - Papers with ongoing experiments — wait until results stabilize, then run.
 - (`/auto-paper-improvement-loop` Step 5.5 used to run this protocol inline; as of May 2026 it now invokes `/kill-argument` and reads `KILL_ARGUMENT.json` instead, so there is no longer a "do not invoke from inside auto-loop" exclusion.)

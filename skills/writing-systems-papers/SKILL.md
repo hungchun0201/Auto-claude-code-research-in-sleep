@@ -2,7 +2,7 @@
 name: writing-systems-papers
 description: "Section-by-section structural blueprint and reviewer rubrics for systems papers targeting OSDI, SOSP, NSDI, ASPLOS, EuroSys, MLSys, SIGCOMM, and MobiCom. Authors apply the per-section discipline rules; auto-review-loop applies the Reviewer Rubrics. Use when the user says \"写系统论文\", \"systems paper structure\", \"OSDI paper\", \"SOSP paper\", or asks for venue-aware structural guidance."
 argument-hint: [venue-or-section]
-allowed-tools: Bash(*), Read, Write, Edit, Grep, Glob, Agent, WebSearch, WebFetch, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Bash(*), Read, Write, Edit, Grep, Glob, WebSearch, WebFetch, mcp__codex__codex, mcp__codex__codex-reply
 ---
 
 # Writing Systems Papers
