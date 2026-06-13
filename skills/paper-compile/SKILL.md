@@ -136,15 +136,35 @@ pdfinfo main.pdf | grep Pages
 # open main.pdf
 ```
 
-**Visual review (automated):**
-If the compiled PDF exists, read it directly to check visual presentation:
-- Figure quality: readable labels, legible text, distinguishable colors
-- Layout: no orphaned section headers, no awkward page breaks
-- Figures appear near their first text reference (not pages away)
-- Tables: aligned columns, consistent decimal precision
-- No overfull content visibly extending past margins
+**Visual review (MANDATORY — render to images and look at them):**
+Do not "read the PDF" abstractly: **render every page to PNG and open each
+image with the Read tool.** A `tectonic` build emits no `main.log` unless asked,
+so a pure log/grep overfull check can silently miss a layout that is badly
+broken on screen (e.g. a long `\texttt{}` API name or `a/b/c` slash run
+spilling 200pt into the margin, a table overrunning its column). Render first:
 
-This is a quick visual scan, not a full review — the improvement loop does deeper visual review.
+```bash
+PDF=paper/main.pdf; OUT=/tmp/paper_pages
+command -v pdftoppm >/dev/null && pdftoppm -png -r 130 "$PDF" "$OUT" \
+  || (command -v mutool >/dev/null && mutool draw -o "${OUT}-%d.png" -r 130 "$PDF") \
+  || qlmanage -t -s 1600 -o /tmp "$PDF"
+ls ${OUT}*.png
+```
+
+Then visually inspect each rendered page for:
+- text protruding past the column edge / into the margin or gutter;
+- figures or tables clipped by or overrunning their float box / column width;
+- captions or cells colliding with adjacent text or the opposite column;
+- unbreakable long tokens spilling out (these cause the largest spills);
+- figure quality (legible labels), orphaned headers, awkward breaks, figures
+  far from their first reference, table column alignment.
+
+Targeted fixes (prefer over global `\sloppy`): breakable `\texttt{foo\allowbreak Bar}`
+for CamelCase API names; `\discretionary{}{}{}/\discretionary{}{}{}` for slash
+runs; `\resizebox{\columnwidth}{!}{...}` for over-wide tables;
+`\emergencystretch=3em` for generally tight columns. Recompile, re-render,
+re-inspect. The improvement loop (Step 8.5) does the deeper blocking gate; this
+is the first pass that must not pass a visibly broken page.
 
 **Automated checks:**
 

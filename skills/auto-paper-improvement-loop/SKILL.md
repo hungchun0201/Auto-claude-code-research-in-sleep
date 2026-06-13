@@ -542,6 +542,55 @@ echo "$BIB_OVERFULL"
 
 **Empirical motivation:** in a real submission run, dozens of overfull hbox warnings (the largest well over 100pt in an appendix proof) survived multiple improvement rounds because the previous blanket "overfull > 10pt blocks" rule was too lax and treated all locations equally.
 
+### Step 8.5: Mandatory rendered-page visual gate (BLOCKING)
+
+> **The log grep in Step 8 is necessary but NOT sufficient.** It is
+> compiler-specific (a `tectonic` build emits no `paper/main.log` unless run
+> with `--keep-logs`/`--print`, so the grep silently finds nothing and the
+> `|| true` passes a broken layout), and it can never see a figure/table that
+> overruns its float box, a caption that collides with the next column, or an
+> unbreakable `\texttt{}`/slash-number token spilling into the margin. You
+> MUST render the compiled PDF to images and **look at them yourself** before
+> declaring the format check passed. This step is how a 200pt margin spill
+> reaches a human reviewer's screenshot instead of being caught here.
+
+```bash
+# Render EVERY page to PNG (compiler-agnostic — operates on the PDF, not the log).
+# pdftoppm (poppler) preferred; fall back to mutool, then qlmanage.
+PDF=paper/main.pdf; OUT=/tmp/paper_pages
+command -v pdftoppm >/dev/null && pdftoppm -png -r 130 "$PDF" "$OUT" \
+  || (command -v mutool >/dev/null && mutool draw -o "${OUT}-%d.png" -r 130 "$PDF") \
+  || qlmanage -t -s 1600 -o /tmp "$PDF"
+ls ${OUT}*.png
+```
+
+Then **open each rendered page image with the Read tool and visually inspect**
+for layout defects the log cannot report:
+
+- text protruding past the column edge or into the gutter/margin;
+- figures or tables clipped by, or overrunning, their float box / column width;
+- captions or table cells colliding with adjacent text or the opposite column;
+- unbreakable long tokens (`\texttt{}` API names, `a/b/c`-style slash runs,
+  URLs, long numbers) spilling out — these often produce the *largest* spills;
+- broken or overlapping math; mis-sized or off-page floats.
+
+**This is a hard gate.** Completion is blocked until a full visual pass over
+the rendered pages is clean. Do not rely on the log grep alone, and do not
+skip the render because "it compiled."
+
+**Targeted fixes for the defects this gate catches (prefer over global `\sloppy`):**
+
+| Visual defect | Fix |
+|---------------|-----|
+| Long `\texttt{}` CamelCase token in margin | breakable macro: `\texttt{foo\allowbreak Bar\allowbreak Baz}` |
+| Slash-separated run (`a/b/c`) overflowing | breakable slash `\discretionary{}{}{}/\discretionary{}{}{}` or commas |
+| Table wider than `\columnwidth` | wrap tabular in `\resizebox{\columnwidth}{!}{...}` (keep it legible) |
+| Generally tight column, small spills | `\emergencystretch=3em` in the preamble |
+| Figure overruns float | set `\includegraphics[width=\columnwidth]` / `width=\linewidth` |
+
+After applying fixes, recompile and **re-render + re-inspect** — the gate is
+not satisfied by a code change alone, only by a clean rendered-page pass.
+
 ### Step 9: Document Results
 
 Create `PAPER_IMPROVEMENT_LOG.md` in the paper directory:
