@@ -12,6 +12,17 @@ All reviewer-heavy Codex base skills use the same default contract:
 
 This is the base default for `skills/skills-codex/`. No effort level or unrelated parameter changes it.
 
+> 🛑 **If `spawn_agent` / `send_input` are unavailable (e.g. local Codex CLI 0.13x):
+> NEVER substitute a recursive codex call.** Do NOT call any `mcp__codex` tool, any
+> MCP server named `codex`, or `codex mcp-server` from inside a Codex session —
+> codex-in-codex deadlocks at an un-forwardable approval gate with no timeout
+> (openai/codex#6664, #11816; caused a 6.5h hang on 2026-06-10). Degrade instead, in
+> this order:
+> 1. one-shot subprocess with stdin closed and a hard timeout:
+>    `timeout 3600 codex exec --sandbox read-only ... - < /tmp/reviewer_prompt.txt`
+>    (writing the prompt to a file first; stdin MUST reach EOF or codex exec hangs — openai/codex#20919)
+> 2. perform the review in the current context, clearly labeled as NOT independent.
+
 > ⚠️ **Same-family by default — Type-A only, NOT a cross-family verdict.** The executor here is Codex (GPT family) and this default reviewer is a *second Codex agent* — same family. That is a valid **Type-A** review (it finds omissions, ranks weaknesses, drives the fix loop), but it is **NOT** the cross-model **Type-B acquittal** ARIS's invariant requires — one model family judging itself voids the verdict (mainline `acceptance-gate.md`). For a Type-B cross-family verdict, install the **`skills-codex-claude-review`** or **`skills-codex-gemini-review`** overlay (the only genuinely cross-family reviewers for a Codex executor). Note `oracle-pro` (gpt-5.x-pro) is **also GPT family**, so it does NOT cross the family boundary for a Codex executor either.
 
 ## Default Pattern

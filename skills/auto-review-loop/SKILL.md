@@ -220,7 +220,7 @@ mcp__codex__codex:
 **Do NOT use MCP.** Instead, let GPT access the repo autonomously via `codex exec`:
 
 ```bash
-codex exec "$(cat <<'PROMPT'
+cat > /tmp/review_prompt.txt <<'PROMPT'
 You are an adversarial senior ML reviewer (NeurIPS/ICML level).
 This is Round N/MAX_ROUNDS of an autonomous review loop.
 
@@ -249,7 +249,7 @@ OUTPUT FORMAT:
 
 Be adversarial. Trust nothing the author tells you — verify everything yourself.
 PROMPT
-)" --skip-git-repo-check 2>&1
+timeout 3600 codex exec --skip-git-repo-check - < /tmp/review_prompt.txt 2>&1
 ```
 
 **Key difference**: In nightmare mode, GPT independently reads code, result files, and logs. Claude cannot filter or curate what GPT sees. This is the closest analog to a real hostile reviewer who reads your actual paper + supplementary materials.
@@ -347,7 +347,7 @@ The prompt content:
 
 *Nightmare mode (codex exec):*
 ```bash
-codex exec "$(cat <<'PROMPT'
+cat > /tmp/review_prompt.txt <<'PROMPT'
 You are the same adversarial reviewer. The author rebuts your review:
 
 [paste executor's rebuttal]
@@ -362,7 +362,7 @@ For each rebuttal, rule:
 
 Update your score. Update your memory.
 PROMPT
-)" --skip-git-repo-check 2>&1
+timeout 3600 codex exec --skip-git-repo-check - < /tmp/review_prompt.txt 2>&1
 ```
 
 **Step 3 — Update score and action items** based on the ruling:

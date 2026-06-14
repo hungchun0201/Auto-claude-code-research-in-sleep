@@ -80,6 +80,15 @@ Any .md file that is an executor-written summary
 
 **CRITICAL: Use a fresh reviewer agent every run.** Never reuse an old reviewer context for this audit.
 
+> 🛑 **If `spawn_agent` is unavailable (local Codex CLI): do NOT improvise a
+> recursive codex call.** Calling any `mcp__codex` tool or `codex mcp-server`
+> from inside a Codex session deadlocks (openai/codex#6664 — this exact skill
+> caused a 6.5h hang on 2026-06-10). Fall back to
+> `timeout 3600 codex exec --sandbox read-only - < /tmp/audit_prompt.txt`
+> (prompt written to a file; stdin must reach EOF), or do the audit in the
+> current context and label it as not independent. See
+> `shared-references/reviewer-routing.md`.
+
 ```text
 spawn_agent:
   model: gpt-5.5
