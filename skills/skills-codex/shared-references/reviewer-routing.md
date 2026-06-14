@@ -73,11 +73,41 @@ If reviewer is omitted or reviewer=codex:
 If reviewer=oracle-pro:
   check Oracle MCP availability
   if available:
-    call mcp__oracle__consult with model gpt-5.5-pro
+    call mcp__oracle__consult with:
+      engine: browser
+      model:  gpt-5.5-pro
+      browserModelStrategy: current
+    (do NOT set browserThinkingTime; do NOT use preset chatgpt-pro-heavy)
   if unavailable:
     print a clear warning
     fall back to the default Codex xhigh reviewer
 ```
+
+### oracle-pro setup (verified 2026-06-14, no OpenAI API key)
+
+Browser engine on a ChatGPT Pro subscription. Prereqs:
+
+1. **oracle ≥ 0.14.0** (`npm i -g @steipete/oracle@latest`). 0.13.0's login probe hits the
+   Cloudflare-blocked `/backend-api/me` and falsely times out ("manual login mode timed out
+   waiting for ChatGPT session"); 0.14 uses `/api/auth/session`.
+2. **`ORACLE_BROWSER_PROFILE_DIR=~/.oracle/browser-profile`** in the oracle MCP server env
+   (`~/.claude.json` → `mcpServers.oracle.env`). A non-empty value flips oracle into
+   manual-login mode → reuse the signed-in persistent profile and SKIP copying cookies from
+   the system Chrome (the original "No ChatGPT cookies were applied" failure). Restart Claude
+   Code so the MCP server picks up the env.
+3. In that profile's ChatGPT UI, select **"Pro Extended"** once (it persists). `browserModelStrategy:
+   current` then resolves to Pro Extended (`resolved=Pro Extended; status=already-selected`).
+
+**Pitfall — do NOT force the thinking time.** Current ChatGPT exposes "Pro Extended" as one
+combined picker item; passing `--browser-thinking-time extended` (or MCP `preset:
+chatgpt-pro-heavy`, which sets `thinkingTime=extended`) makes oracle hunt for a separate Pro
+thinking submenu, fail to find it, and *refuse to submit*. Use `browserModelStrategy: current`
+with Pro Extended pre-selected instead. Also never `--browser-hide-window` (breaks login detection).
+
+Equivalent CLI (degraded / no MCP):
+`oracle --engine browser --browser-manual-login --browser-manual-login-profile-dir ~/.oracle/browser-profile -m gpt-5.5-pro --browser-model-strategy current -s three-word-slug-here -p "..."`
+
+Note: oracle-pro (gpt-5.x-pro) is **still GPT family** → Type-A only, not a cross-family Type-B verdict.
 
 ## Invariants
 
