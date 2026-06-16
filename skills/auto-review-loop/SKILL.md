@@ -24,6 +24,7 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 
 - MAX_ROUNDS = 4 (**soft cap, not a stopping excuse**: see Termination below — MAX_ROUNDS only matters if score is *plateauing*. If score is still improving round-over-round, KEEP GOING. Hitting MAX_ROUNDS at a sub-threshold score with active mechanism work in progress is FAILURE, not termination.)
 - POSITIVE_THRESHOLD: score >= 6/10 **AND** verdict ∈ {"ready", "almost"} — **both** must hold. This matches the operative Phase-E STOP CONDITION exactly; the verdict vocabulary is {"ready", "almost", "not ready"} (a high score with a "not ready" verdict does NOT stop the loop). Earlier wording here used `or` and a stale verdict set ("accept"/"sufficient"/"ready for submission") — that was an internal inconsistency; the `AND` form is authoritative.
+- **ASSURANCE = draft** — Passed from `/research-pipeline`. When `submission` (conference-grade runs), raise the POSITIVE_THRESHOLD score from 6 to **7**, lift the MAX_ROUNDS soft cap to 6, and treat citation / result-to-claim / kill-argument as blocking gates that must pass before a positive STOP.
 - LIT_SURVEY_PER_ROUND = true — **mandatory before each Phase A AND after each Phase B**. See Phase A.0 and Phase B.7.
 - REVIEW_DOC: `review-stage/AUTO_REVIEW.md` (cumulative log) *(fall back to `./AUTO_REVIEW.md` for legacy projects)*
 - REVIEWER_MODEL = `gpt-5.5` — Default model for the Codex backend. Must be an OpenAI model (e.g., `gpt-5.5`, `o3`, `gpt-4o`). Manual backend uses whatever model the user chooses.

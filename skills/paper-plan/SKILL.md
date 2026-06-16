@@ -14,6 +14,7 @@ Generate a structured, section-by-section paper outline from: **$ARGUMENTS**
 - **REVIEWER_MODEL = `gpt-5.5`** — Model used via Codex MCP for outline review. Must be an OpenAI model.
 - **TARGET_VENUE = `ICLR`** — Default venue. User can override (e.g., `/paper-plan "topic" — venue: NeurIPS`). Supported: `ICLR`, `NeurIPS`, `ICML`, `CVPR`, `ACL`, `AAAI`, `ACM`, `IEEE_JOURNAL` (IEEE Transactions / Letters), `IEEE_CONF` (IEEE conferences).
 - **MAX_PAGES** — Page limit. For ML conferences: main body to Conclusion end (excluding references, appendix). ICLR=9, NeurIPS=9, ICML=8, AAAI=7 technical-content pages plus references unless the current AAAI CFP says otherwise. **For IEEE venues: references ARE included in page count.** IEEE journal Transactions ≈ 12-14 pages total, Letters ≈ 4-5 pages total; IEEE conference ≈ 5-8 pages total (including references).
+- **MIN_PAGES** — Soft floor for the main body. IEEE_CONF ≈ 6, IEEE_JOURNAL ≈ 10, ML conferences ≈ 7. **If the planned content falls below MIN_PAGES, EXPAND — add experiments, ablations, a fuller Related Work, or a sensitivity study — rather than padding prose or shipping a thin paper.** Applies automatically on `ASSURANCE=submission` runs: a submission-grade paper that lands under MIN_PAGES is under-built, not done.
 
 ## Inputs
 

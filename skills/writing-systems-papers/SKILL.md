@@ -49,6 +49,8 @@ Structural blueprint and reviewer rubric set for **$ARGUMENTS**.
 
 10-page MLSys: scale down §1 and §5 by 0.5 page each. See `references/README.md` for the per-venue table.
 
+**6-page IEEE conference (ICC / GLOBECOM, references included)** — invoked when `/research-pipeline` passes `venue: IEEE_CONF`. Keep every section role, universal ban (U1–U10), and paragraph-discipline rule, but compress to ~6 pages: Abstract 0.2 · §1 Introduction ~1 · §2 Background/Motivation ~0.75 · §3 Design/Method ~1.5 · §4 Evaluation ~1.5 (setup → E2E → ≥1 ablation → scalability) · §5 Related Work ~0.5 · §6 Conclusion ~0.25 · References ~0.3. Structural rigor does not relax — only the prose budget does. Aim for ~15–25 verified citations even at 6 pages.
+
 ## Workflow
 
 1. Confirm target venue and page cap (see venue table).

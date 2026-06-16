@@ -28,8 +28,24 @@ End-to-end autonomous research workflow for: **$ARGUMENTS**
 - **CODE_REVIEW = true** — GPT-5.5 xhigh reviews experiment code before deployment. Catches logic bugs before wasting GPU hours. Set `false` to skip. Passed through to `/experiment-bridge`.
 - **BASE_REPO = false** — GitHub repo URL to use as base codebase. When set, `/experiment-bridge` clones the repo first and implements experiments on top of it. When `false` (default), writes code from scratch or reuses existing project files. Passed through to `/experiment-bridge`.
 - **COMPACT = false** — When `true`, generates compact summary files for short-context models and session recovery. Passed through to `/idea-discovery` and `/experiment-bridge`.
-- **AUTO_WRITE = false** — When `true`, automatically invoke Workflow 3 (`/paper-writing`) after Stage 4. Requires `VENUE` to be set. When `false` (default), Stage 4 generates `NARRATIVE_REPORT.md` and stops — user invokes `/paper-writing` manually.
-- **VENUE = ICLR** — Target venue for paper writing (Stage 5). Only used when `AUTO_WRITE=true`. Options: `ICLR`, `NeurIPS`, `ICML`, `CVPR`, `ACL`, `AAAI`, `ACM`, `IEEE_CONF`, `IEEE_JOURNAL`.
+- **AUTO_WRITE = false** — When `true`, automatically invoke Workflow 3 (`/paper-writing`) after Stage 4. Requires `VENUE` to be set. When `false` (default), Stage 4 generates `NARRATIVE_REPORT.md` and stops — user invokes `/paper-writing` manually. **Forced to `true` when `AUTONOMOUS=true`** (the terminal deliverable becomes a PDF, not `NARRATIVE_REPORT.md`).
+- **VENUE = ICLR** — Target venue for paper writing (Stage 5). Used when `AUTO_WRITE=true`. Options: `ICLR`, `NeurIPS`, `ICML`, `CVPR`, `ACL`, `AAAI`, `ACM`, `IEEE_CONF`, `IEEE_JOURNAL`. **Defaults to `IEEE_CONF` when `AUTONOMOUS=true` and no venue is given.**
+- **ASSURANCE = draft** — Depth/rigor contract for the paper. `draft`: audits are advisory. `submission`: citation-audit, result-to-claim, and kill-argument are blocking and must pass. **Forced to `submission` when `AUTONOMOUS=true`.** Passed through to `/auto-review-loop` and `/paper-writing`.
+- **AUTONOMOUS = false** — Master autonomy switch. Set to `true` whenever the launch prompt/argument signals self-driving research — e.g. it contains "自己做", "自主", "不要停", "autonomous", "PhD student", "research-portfolio", or passes `— autonomous: true`. When `true` it forces the full hands-off, conference-grade profile below.
+
+### Autonomous profile (only when AUTONOMOUS=true)
+
+| Setting | Forced value | Effect |
+|---|---|---|
+| AUTO_PROCEED | true | no Gate-1 stop; auto-select #1 idea |
+| HUMAN_CHECKPOINT | false | review loops run unattended |
+| AUTO_WRITE | true | Stage 5 always runs → deliverable is a PDF |
+| VENUE | IEEE_CONF (unless overridden) | activates paper-plan's IEEE page budget |
+| ASSURANCE | submission | citation / result-to-claim / kill-argument become blocking |
+| REVIEWER_DIFFICULTY | nightmare | GPT reads the repo directly |
+| TARGET_SCORE | 7 | iterate-until-bar threshold (Stage 3 / Key Rules) |
+
+Under this profile the agent **must not return control to the user mid-pipeline** (see Key Rules), **must back the headline result with a real PACE measurement** (see Stage 2), and **may not self-author scope-narrowing rules** (e.g. "simulation-only") that conflict with the venue target.
 - **RENDER_HTML = true** — When `true` (default), auto-render `NARRATIVE_REPORT.md` to HTML at Stage 4 completion via `/render-html`. Uses `--no-review` (this is an internal handoff doc to `/paper-writing`, not a reviewer-facing final artifact — the upstream Stage 3 auto-review loop already cross-model-reviewed the claims). Set `false` to skip, or pass `— render html: false`. **Non-blocking**: if `/render-html` fails or Codex MCP is unavailable, log the failure and continue — the HTML view is a nice-to-have, not a Stage 4 prerequisite.
 
 - **RESUMABLE = true** — When `true` (default), the pipeline records per-stage state to `.aris/runs/<run_id>.json` so a crashed/interrupted run can resume via `/research-pipeline — resume <run_id>` instead of restarting. Stage status splits `done` (executor finished writing) from `accepted` (the stage's cross-model gate / deterministic verifier passed); resume re-validates any `done`-but-unaccepted stage. See `shared-references/resumable-runs.md`.
@@ -161,19 +177,21 @@ Once the user confirms which idea to pursue, delegate implementation and deploym
 
 Wait for `/experiment-bridge` to complete and report its handoff summary before proceeding.
 
+> 🔬 **Headline-measurement rule (AUTONOMOUS=true):** the paper's *headline* result MUST be backed by a real measured run, not only a model/simulator. `/experiment-bridge` submits the real job to PACE itself — do NOT stop to ask first — using `--account=gts-rs275-paid -q inferno` (Lab 5090 via `ssh lab` is fine for ≤30B models). Simulation/analytical results are supplementary scaffolding, not the headline. You may NOT add a "simulation-only / no new GPU" rule to the project that would block this.
+
 ### Stage 3: Auto Review Loop (Workflow 2)
 
 Once initial results are in, start the autonomous improvement loop:
 
 ```
-/auto-review-loop "$ARGUMENTS — [chosen idea title], difficulty: $REVIEWER_DIFFICULTY"
+/auto-review-loop "$ARGUMENTS — [chosen idea title], difficulty: $REVIEWER_DIFFICULTY, assurance: $ASSURANCE"
 ```
 
 **What this does (up to 4 rounds):**
 1. GPT-5.5 xhigh reviews the work (score, weaknesses, minimum fixes)
 2. Claude Code implements fixes (code changes, new experiments, reframing)
 3. Deploy fixes, collect new results
-4. Re-review → repeat until (score ≥ 6/10 AND verdict ∈ {ready, almost}) or 4 rounds reached
+4. Re-review → repeat until (score ≥ `TARGET_SCORE` [6 default, **7 when `ASSURANCE=submission`**] AND verdict ∈ {ready, almost}) or `MAX_ROUNDS` reached
 
 **Output:** `review-stage/AUTO_REVIEW.md` with full review history and final assessment.
 
@@ -252,11 +270,13 @@ Checks before proceeding:
 Then invoke:
 
 ```
-/paper-writing "NARRATIVE_REPORT.md" — venue: $VENUE
+/paper-writing "NARRATIVE_REPORT.md" — venue: $VENUE, assurance: $ASSURANCE
 ```
 
 This delegates to Workflow 3 which handles its own phases:
-`/paper-plan → /paper-figure → /paper-write → /paper-compile → /auto-paper-improvement-loop`
+`/paper-plan → /writing-systems-papers → /paper-figure → /paper-write → /paper-compile → /auto-paper-improvement-loop`
+
+For systems / ML-systems / IEEE communications venues (`IEEE_CONF`, ICC, GLOBECOM, MLSys, OSDI, SOSP, NSDI, ASPLOS, EuroSys), **`/writing-systems-papers` is mandatory** right after `/paper-plan`: it supplies the paragraph-level structural blueprint (gap-analysis / observation-driven / thesis-formula patterns, "every design choice discusses alternatives", three-statement evaluation) that `/paper-write` then fills. Pass the venue so it compresses its page budget to `MAX_PAGES` (≈6-8pp for IEEE_CONF) rather than its 10-12-page systems default. `assurance: submission` makes the citation / result-to-claim / kill-argument audits blocking.
 
 When Workflow 3 finishes, update the pipeline report with:
 - Paper writing completion status
@@ -293,7 +313,10 @@ Skip this step if `RENDER_HTML = false`.
 
 - **Human checkpoint after Stage 1 is controlled by AUTO_PROCEED.** When `false`, do not proceed without user confirmation. When `true`, auto-select the top idea after presenting results.
 - **Stages 2-3 can run autonomously** once the user confirms the idea. This is the "sleep and wake up to results" part.
-- **If Stage 3 ends at round 4 without positive assessment**, stop and report remaining issues. Do not loop forever.
+- **AUTONOMOUS mode never returns control mid-pipeline.** When `AUTONOMOUS=true`, do NOT end your turn to ask the user anything between stages, after any single paper, or on push/merge/PACE/GitHub/`sbatch` decisions — these are pre-authorized. Surface to the user ONLY when (a) every targeted paper is complete and pushed, or (b) you hit a hard blocker you genuinely cannot resolve (state it concretely). An action-shaped question from the user ("did you run on PACE? did you make a repo?") must be both **answered AND the implied action performed** — never answer "no" and stop.
+- **No self-narrowing.** In `AUTONOMOUS` mode you may NOT write project rules (e.g. in `CLAUDE.md`) that shrink the run below its stated venue/assurance target — "simulation-only", "no new GPU", "skip related work", etc. are forbidden self-caps.
+- **Iterate-until-bar (outer loop).** After Stage 3, if the final review score < `TARGET_SCORE` (6 default; **7 when `ASSURANCE=submission`**), loop back to Stage 2 to implement the reviewer's required experiments/ablations, then re-run Stages 3-5. Cap at **3 outer rounds**. A single round that ends below the bar is NOT "done"; only finalize after the bar is met or 3 rounds are exhausted.
+- **If Stage 3 ends at `MAX_ROUNDS` without positive assessment** (and outer rounds are exhausted), stop and report remaining issues. Do not loop forever.
 - **Budget awareness**: Track total GPU-hours across the pipeline. Flag if approaching user-defined limits.
 - **Documentation**: Every stage updates its own output file. The full history should be self-contained.
 - **Fail gracefully**: If any stage fails (no good ideas, experiments crash, review loop stuck), report clearly and suggest alternatives rather than forcing forward.
